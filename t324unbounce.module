@@ -1,0 +1,172 @@
+<?php
+
+/* Conditionally add JS based on IP */
+
+function t324unbounce_init() {
+    if(!path_is_admin(current_path()) && !empty(variable_get('t324unbounce_enable', 0)) && !empty(variable_get('t324unbounce_code', ''))) {
+        $do_embed = TRUE;
+        if(!variable_get('t324unbounce_visibility', 0)) {
+            if(!empty(variable_get('t324unbounce_visibility_pages', '')) && drupal_match_path(drupal_get_path_alias(), variable_get('t324unbounce_visibility_pages', ''))) {
+                $do_embed = FALSE;
+            }
+        } else {
+            if(empty(variable_get('t324unbounce_visibility_pages', '')) || !drupal_match_path(drupal_get_path_alias(), variable_get('t324unbounce_visibility_pages', ''))) {
+                $do_embed = FALSE;
+            }
+        }
+        if($do_embed) {
+            if(!empty(variable_get('t324unbounce_admin_debug', 0)) && !user_access('administer unbounce')) {
+                $do_embed = FALSE;
+            } else {
+                $cookiename = variable_get('t324unbounce_cookie_name', 'unbounce_exclude_flag');
+                if(!empty(variable_get('t324unbounce_exclude_method', ''))) {
+                    if(!empty(variable_get('t324unbounce_exclude_ips', ''))) {
+                        $restricted_ips = explode("\n", variable_get('t324unbounce_exclude_ips'));
+                        foreach($restricted_ips as $key => $ip) {
+                            $restricted_ips[$key] = trim($ip);
+                        }
+                        if(variable_get('t324unbounce_exclude_method', 'code') == 'code') {
+                            if(isset($_COOKIE[$cookiename])) {
+                                setcookie($cookiename, NULL, 0, null, $_SERVER['HTTP_HOST'] );
+                            }
+                            if(in_array($_SERVER['REMOTE_ADDR'], $restricted_ips)) {
+                                $do_embed = FALSE;
+                            }
+                        } elseif(variable_get('t324unbounce_exclude_method', 'code') == 'cookie') {
+                            if(!in_array($_SERVER['REMOTE_ADDR'], $restricted_ips)) {
+                                if(isset($_COOKIE[$cookiename]) && $_COOKIE[$cookiename] == '1') {
+                                    setcookie($cookiename, NULL, 0, null,$_SERVER['HTTP_HOST']);
+                                }
+                            } else {
+                                if(!isset($_COOKIE[$cookiename]) || $_COOKIE[$cookiename] != '1') {
+                                    setcookie($cookiename, 1, 0, null, $_SERVER['HTTP_HOST']);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if(isset($_COOKIE[$cookiename])) {
+                        setcookie($cookiename, NULL, 0, null, $_SERVER['HTTP_HOST'] );
+                    }
+                }
+            }
+        }
+        if($do_embed) {
+            drupal_add_js(variable_get('t324unbounce_code', ''), [
+                'type' => 'external',
+                'weight' => 99,
+            ]);
+        }
+    }
+}
+
+/**
+ * Implements hook_menu().
+ */
+function t324unbounce_menu() {
+    $items = array();
+
+    $items['admin/config/unbounce'] = array(
+        'title' => 'UnBounce Integration',
+        'description' => 'Configuration for UnBounce service integration',
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array('t324unbounce_admin'),
+        'access arguments' => array('administer unbounce'),
+        'type' => MENU_NORMAL_ITEM,
+    );
+
+    return $items;
+}
+
+function t324unbounce_admin() {
+    $form = array();
+
+    $form['t324unbounce_code'] = array(
+        '#type' => 'textfield',
+        '#title' => t('UnBounce Embed Code'),
+        '#default_value' => variable_get('t324unbounce_code', ''),
+        '#description' => t("The URL to the UB embed code script."),
+    );
+
+    $form['t324unbounce_enable'] = array(
+        '#type' => 'checkbox',
+        '#title' => 'Enable UnBounce Embed',
+        '#default_value' => variable_get('t324unbounce_enable', 0),
+    );
+
+    $form['t324unbounce_admin_debug'] = array(
+        '#type' => 'checkbox',
+        '#title' => 'Enable Admin Test Mode',
+        '#description' => 'Embed the UnBounce script code ALWAYS and ONLY for those with the permission \'administer 
+            unbounce\', for testing purposes',
+        '#default_value' => variable_get('t324unbounce_admin_debug', 0),
+        '#states' => array(
+            'visible' => array(
+                ':input[name="t324unbounce_enable"]' => array('checked' => TRUE),
+            ),
+        ),
+    );
+
+    $form['t324unbounce_exclude_ips'] = array(
+        '#type' => 'textarea',
+        '#title' => t('Excluded IPs'),
+        '#default_value' => variable_get('t324unbounce_exclude_ips', ''),
+        '#rows' => 3,
+        '#description' => t("A list of IP addresses that should be excluded either by conditionally embedding the entire
+            UnBounce embed code or by setting a cookie that can be detected by UnBounce itself on premium accounts.\n
+            Add one IP address per line."),
+    );
+    $form['t324unbounce_visibility'] = [
+        '#type' => 'radios',
+        '#title' => t('Page Visibility'),
+        '#options' => [
+            t('Show on every page except the listed pages.'),
+            t('Show on only the listed pages.'),
+        ],
+        '#default_value' => variable_get('t324unbounce_visibility', 0),
+    ];
+    $form['t324unbounce_visibility_pages'] = [
+        '#type' => 'textarea',
+        '#title' => t('Pages'),
+        '#rows' => 3,
+        '#default_value' => variable_get('t324unbounce_visibility_pages', ''),
+        '#description' => t("Enter one page per line as Drupal paths. The '*' character is a wildcard. Use '&lt;front&gt;' for 
+            the homepage."),
+    ];
+    $form['t324unbounce_exclude_method'] = array(
+        '#type' => 'select',
+        '#title' => 'Exclusion Method',
+        '#options' => [
+            '' => 'None, Don\'t Exclude',
+            'code' => 'Restrict Embed Code',
+            'cookie' => 'Set Cookie Value',
+        ],
+        '#default_value' => variable_get('t324unbounce_exclude_method', ''),
+    );
+
+    $form['t324unbounce_cookie_name'] = array(
+        '#type' => 'textfield',
+        '#title' => t('Exclusion Cookie Name'),
+        '#default_value' => variable_get('t324unbounce_cookie_name', 'unbounce_exclude_flag'),
+        '#description' => t("The name of the cookie which will store the IP-based UnBounce exclusion flag.  Changing 
+            this name will unset any current values, though they will be reset upon the next pageview."),
+        '#states' => array(
+            'visible' => array(
+                ':input[name="t324unbounce_exclude_method"]' => array('value' => 'cookie'),
+            ),
+        ),
+    );
+
+    return system_settings_form($form);
+}
+
+/**
+ * Implements hook_permission().
+ */
+function t324unbounce_permission() {
+    return [
+        'administer unbounce' => [
+            'title' => t('Administer the UnBounce integration module settings.'),
+        ],
+    ];
+}
